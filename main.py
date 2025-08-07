@@ -13,7 +13,6 @@ if len(sys.argv) != 2 and kubectl_path:
     print("usage: exec controlplane_hostname")
     sys.exit(1)
 
-KUBE_CRYPTO_PATH = "/var/lib/kubernetes/tls.d"
 CP_USER = "exoadmin"
 CP_HOST = sys.argv[1]
 
@@ -24,12 +23,21 @@ kc_path = f"{tmp.name}/admin.kubeconfig"
 
 with Connection(host=CP_HOST, user=CP_USER) as c:
     # c.get('/var/lib/kubernetes/admin.kubeconfig', local=x.name + "admin.kubeconfig")
-    tls_files = [
-        'ca-controlplane.pem',
-        'admin-certificate.pem',
-        'admin-private-key.pem'
-    ]
 
+    if CP_HOST.startswith('kube-master'):
+        KUBE_CRYPTO_PATH = "/etc/kubernetes/ssl"
+        tls_files = [
+            'ca-master.pem',
+            'admin-cert.pem',
+            'admin-key.pem'
+        ]
+    else:
+        KUBE_CRYPTO_PATH = "/var/lib/kubernetes/tls.d"
+        tls_files = [
+            'ca-controlplane.pem',
+            'admin-certificate.pem',
+            'admin-private-key.pem'
+        ]
 
     with c.forward_local(0, remote_host='localhost', remote_port=6443):
         # gotta find what port was bound, using psutil...
