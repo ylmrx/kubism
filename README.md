@@ -1,6 +1,8 @@
 # kubism
 
-Open an ssh proxy to a kube API and build its relevant kubeconfig
+Open an ssh proxy to a kube API and build its relevant kubeconfig.
+
+Requires `kubectl` (but i guess you have it).
 
 ## install
 
@@ -15,7 +17,7 @@ pip install -e .
 ```bash
 kubism hostname # without the zone
 
-[ctrl+C to stop]
+# [ctrl+C to stop]
 ```
 
 ## backgrounding scenario
@@ -27,6 +29,7 @@ kubism hostname
 # [Ctrl+Z] <- suspends process in the background
 bg %1 # <- continue it
 
+# copy/paste the `export KUBECONFIG=...` line
 # Do your thing as the proxy works
 ```
 
@@ -42,6 +45,6 @@ function proxykube {
       | "\(.[$k].DNSName[:-1]) \(.[$k].Tags )"
       | select(test("^kube-(master|controlplane)"))] | sort[]' | \
     gum filter --no-fuzzy | cut -f 1 -d ' ')
-  $HOME/kubism/.venv/bin/python $HOME/kubism/main.py $__cp
+  /path/to/venv/bin/kubism $__cp
 }
 ```
