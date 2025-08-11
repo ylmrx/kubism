@@ -4,6 +4,9 @@ Open an ssh proxy to a kube API and build its relevant kubeconfig.
 
 Requires `kubectl` (but i guess you have it).
 
+There's no error control at all (yet) (ie. ugly output on connection issues, and
+killed terminal doesn't clear the tmp folder)
+
 ## install
 
 In some virtual environment:
@@ -17,15 +20,21 @@ pip install -e .
 ```bash
 kubism hostname # without the zone
 
-# [ctrl+C to stop]
+# open a subshell (run $SHELL) with the $KUBECONFIG set...
+
+# [ctrl+D to exit]
+# clear the crypto, and close the tunnel
 ```
+
+You can have the tunnel sticking to foreground using the `--foreground` flag. Use
+`Ctrl+C` to close it.
 
 ## backgrounding scenario
 
 If you don't want to open another term:
 
 ```bash
-kubism hostname
+kubism -f hostname
 # [Ctrl+Z] <- suspends process in the background
 bg %1 # <- continue it
 

@@ -1,31 +1,25 @@
 import shlex
-import shutil
 import threading
 from fabric import Connection
 from tempfile import TemporaryDirectory
 import sys
 import psutil
 import subprocess
+import os
+import click
 
-def main():
-    kubectl_path = shutil.which("kubectl")
-    if len(sys.argv) != 2 and kubectl_path:
-        print("depends on having kubectl...")
-        print("usage: exec controlplane_hostname")
-        sys.exit(1)
-
-    CP_USER = "exoadmin"
-    CP_HOST = sys.argv[1]
-
+@click.command()
+@click.option('--foreground', '-f', help="don't open a subshell", is_flag=True, default=False)
+@click.option('--user', '-u', default='exoadmin', help="Login to host as")
+@click.argument('host')
+def main(foreground, host, user):
     tmp = TemporaryDirectory(suffix='_kubism')
-
     # create a kubeconfig in tmp...
     kc_path = f"{tmp.name}/admin.kubeconfig"
 
-    with Connection(host=CP_HOST, user=CP_USER) as c:
-        # c.get('/var/lib/kubernetes/admin.kubeconfig', local=x.name + "admin.kubeconfig")
+    with Connection(host=host, user=user) as c:
 
-        if CP_HOST.startswith('kube-master'):
+        if host.startswith('kube-master'):
             KUBE_CRYPTO_PATH = "/etc/kubernetes/ssl"
             tls_files = [
                 'ca-master.pem',
@@ -43,7 +37,6 @@ def main():
         with c.forward_local(0, remote_host='localhost', remote_port=6443):
             # gotta find what port was bound, using psutil...
             port = 0
-            pid = psutil.Process().pid
             for conn in psutil.net_connections(kind='inet'):
                 if conn.status == 'LISTEN' and conn.pid == psutil.Process().pid:
                     port = conn.laddr.port
@@ -64,19 +57,22 @@ def main():
                 f"kubectl config --kubeconfig {kc_path} set-cluster cluster \
                             --server https://localhost:{port} \
                             --certificate-authority {tmp.name}/{tls_files[0]}",
-                f"kubectl config --kubeconfig {kc_path} set-context {CP_HOST} \
+                f"kubectl config --kubeconfig {kc_path} set-context {host} \
                             --cluster cluster --user user",
-                f"kubectl config --kubeconfig {kc_path} use-context {CP_HOST}"
+                f"kubectl config --kubeconfig {kc_path} use-context {host}"
             ]
             for cmd in commands:
                 subprocess.check_call(shlex.split(cmd))
-            print(f"Use:\nexport KUBECONFIG={kc_path}")
-
-            forever = threading.Event()
-            try:
-                forever.wait()
-            except KeyboardInterrupt:
-                sys.exit(0)
+            if foreground:
+                print(f"Use:\nexport KUBECONFIG={kc_path}")
+                forever = threading.Event()
+                try:
+                    forever.wait()
+                except KeyboardInterrupt:
+                    sys.exit(0)
+            else:
+                os.environ['KUBECONFIG'] = kc_path
+                subprocess.run([os.environ.get('SHELL')])
 
 if __name__ == '__main__':
     main()
