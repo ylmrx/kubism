@@ -34,45 +34,50 @@ def main(foreground, host, user):
                 'admin-private-key.pem'
             ]
 
-        with c.forward_local(0, remote_host='localhost', remote_port=6443):
-            # gotta find what port was bound, using psutil...
-            port = 0
-            for conn in psutil.net_connections(kind='inet'):
-                if conn.status == 'LISTEN' and conn.pid == psutil.Process().pid:
-                    port = conn.laddr.port
+        try:
+            fwd = c.forward_local(0, remote_host='localhost', remote_port=6443)
+        except OSError as e:
+            print("failure to connect", e)
+        else:
+            with c.forward_local(0, remote_host='localhost', remote_port=6443) as fwd:
+                # gotta find what port was bound, using psutil...
+                port = 0
+                for conn in psutil.net_connections(kind='inet'):
+                    if conn.status == 'LISTEN' and conn.pid == psutil.Process().pid:
+                        port = conn.laddr.port
 
-            if port == 0:
-                print('fail to seek the opened port...')
-                sys.exit(1)
+                if port == 0:
+                    print('fail to seek the opened port...')
+                    sys.exit(1)
 
-            for tf in tls_files:
-                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tf}", hide=True)
-                with open(f"{tmp.name}/{tf}", mode='w') as f:
-                    f.write(r.stdout)
-            
-            commands = [
-                f"kubectl config --kubeconfig {kc_path} set-credentials user \
-                            --client-certificate {tmp.name}/{tls_files[1]} \
-                            --client-key {tmp.name}/{tls_files[2]}",
-                f"kubectl config --kubeconfig {kc_path} set-cluster cluster \
-                            --server https://localhost:{port} \
-                            --certificate-authority {tmp.name}/{tls_files[0]}",
-                f"kubectl config --kubeconfig {kc_path} set-context {host} \
-                            --cluster cluster --user user",
-                f"kubectl config --kubeconfig {kc_path} use-context {host}"
-            ]
-            for cmd in commands:
-                subprocess.check_call(shlex.split(cmd))
-            if foreground:
-                print(f"Use:\nexport KUBECONFIG={kc_path}")
-                forever = threading.Event()
-                try:
-                    forever.wait()
-                except KeyboardInterrupt:
-                    sys.exit(0)
-            else:
-                os.environ['KUBECONFIG'] = kc_path
-                subprocess.run([os.environ.get('SHELL')])
+                for tf in tls_files:
+                    r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tf}", hide=True)
+                    with open(f"{tmp.name}/{tf}", mode='w') as f:
+                        f.write(r.stdout)
+
+                commands = [
+                    f"kubectl config --kubeconfig {kc_path} set-credentials user \
+                                --client-certificate {tmp.name}/{tls_files[1]} \
+                                --client-key {tmp.name}/{tls_files[2]}",
+                    f"kubectl config --kubeconfig {kc_path} set-cluster cluster \
+                                --server https://localhost:{port} \
+                                --certificate-authority {tmp.name}/{tls_files[0]}",
+                    f"kubectl config --kubeconfig {kc_path} set-context {host} \
+                                --cluster cluster --user user",
+                    f"kubectl config --kubeconfig {kc_path} use-context {host}"
+                ]
+                for cmd in commands:
+                    subprocess.check_call(shlex.split(cmd))
+                if foreground:
+                    print(f"Use:\nexport KUBECONFIG={kc_path}")
+                    forever = threading.Event()
+                    try:
+                        forever.wait()
+                    except KeyboardInterrupt:
+                        sys.exit(0)
+                else:
+                    os.environ['KUBECONFIG'] = kc_path
+                    subprocess.run([os.environ.get('SHELL')])
 
 if __name__ == '__main__':
     main()
