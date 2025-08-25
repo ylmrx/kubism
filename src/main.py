@@ -1,4 +1,3 @@
-import shlex
 import threading
 from fabric import Connection
 from tempfile import TemporaryDirectory
@@ -7,6 +6,7 @@ import psutil
 import subprocess
 import os
 import click
+import yaml
 
 @click.command()
 @click.option('--foreground', '-f', help="don't open a subshell", is_flag=True, default=False)
@@ -39,7 +39,7 @@ def main(foreground, host, user):
         except OSError as e:
             print("failure to connect", e)
         else:
-            with c.forward_local(0, remote_host='localhost', remote_port=6443) as fwd:
+            with fwd:
                 # gotta find what port was bound, using psutil...
                 port = 0
                 for conn in psutil.net_connections(kind='inet'):
@@ -55,19 +55,31 @@ def main(foreground, host, user):
                     with open(f"{tmp.name}/{tf}", mode='w') as f:
                         f.write(r.stdout)
 
-                commands = [
-                    f"kubectl config --kubeconfig {kc_path} set-credentials user \
-                                --client-certificate {tmp.name}/{tls_files[1]} \
-                                --client-key {tmp.name}/{tls_files[2]}",
-                    f"kubectl config --kubeconfig {kc_path} set-cluster cluster \
-                                --server https://localhost:{port} \
-                                --certificate-authority {tmp.name}/{tls_files[0]}",
-                    f"kubectl config --kubeconfig {kc_path} set-context {host} \
-                                --cluster cluster --user user",
-                    f"kubectl config --kubeconfig {kc_path} use-context {host}"
-                ]
-                for cmd in commands:
-                    subprocess.check_call(shlex.split(cmd))
+                with open(kc_path, 'w') as f:
+                    yaml.dump(stream=f, data={
+                        'apiVersion': 'v1',
+                        'kind': 'Config',
+                        'current-context': host,
+                        'clusters': [{
+                            'name': 'cluster',
+                            'cluster': {
+                                'certificate-authority': tls_files[0],
+                                'server': f'https://localhost:{port}'
+                            }
+                        }],
+                        'users': [{
+                            'name': 'user',
+                            'user': {
+                                'client-certificate': tls_files[1],
+                                'client-key': tls_files[2]
+                            }
+                        }],
+                        'contexts': [{
+                            'name': host,
+                            'context': { 'cluster': 'cluster', 'user': 'user' }
+                        }]
+                    })
+
                 if foreground:
                     print(f"Use:\nexport KUBECONFIG={kc_path}")
                     forever = threading.Event()

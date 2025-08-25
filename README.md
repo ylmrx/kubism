@@ -2,8 +2,6 @@
 
 Open an ssh proxy to a kube API and build its relevant kubeconfig.
 
-Requires `kubectl` (but i guess you have it).
-
 There's no error control at all (yet) (ie. ugly output on connection issues, and
 killed terminal doesn't clear the tmp folder)
 
