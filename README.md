@@ -47,6 +47,8 @@ Requires: https://github.com/charmbracelet/gum
 ```bash
 # in your bashrc/zshrc/...
 function proxykube {
+   # is ts up ?
+  test $(tailscale status --json | jq .Self.Online) = false && tailscale up
   __cp=$(tailscale status --json | \
     jq -r '[.Peer | map(select( has("Tags"))) | keys[] as $k
       | "\(.[$k].DNSName[:-1]) \(.[$k].Tags )"
