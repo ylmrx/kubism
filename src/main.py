@@ -7,15 +7,15 @@ import subprocess
 import os
 import click
 import yaml
+from tmp_handler import TempFileHandler
 
 @click.command()
 @click.option('--foreground', '-f', help="don't open a subshell", is_flag=True, default=False)
 @click.option('--user', '-u', default='exoadmin', help="Login to host as")
 @click.argument('host')
 def main(foreground, host, user):
-    tmp = TemporaryDirectory(suffix='_kubism')
-    # create a kubeconfig in tmp...
-    kc_path = f"{tmp.name}/admin.kubeconfig"
+    kubeconfig = TempFileHandler()
+    kubeconfig.create()
 
     with Connection(host=host, user=user) as c:
 
@@ -50,46 +50,54 @@ def main(foreground, host, user):
                     print('fail to seek the opened port...')
                     sys.exit(1)
 
-                for tf in tls_files:
-                    r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tf}", hide=True)
-                    with open(f"{tmp.name}/{tf}", mode='w') as f:
-                        f.write(r.stdout)
+                ca = TempFileHandler()
+                ca.create()
+                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[0]}", hide=True)
+                os.write(ca.fd, bytes(r.stdout, encoding='utf-8'))
+                crt = TempFileHandler()
+                crt.create()
+                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[1]}", hide=True)
+                os.write(crt.fd, bytes(r.stdout, encoding='utf-8'))
+                key = TempFileHandler()
+                key.create()
+                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[2]}", hide=True)
+                os.write(key.fd, bytes(r.stdout, encoding='utf-8'))
 
-                with open(kc_path, 'w') as f:
-                    yaml.dump(stream=f, data={
-                        'apiVersion': 'v1',
-                        'kind': 'Config',
-                        'current-context': host,
-                        'clusters': [{
-                            'name': 'cluster',
-                            'cluster': {
-                                'certificate-authority': tls_files[0],
-                                'server': f'https://localhost:{port}'
-                            }
-                        }],
-                        'users': [{
-                            'name': 'user',
-                            'user': {
-                                'client-certificate': tls_files[1],
-                                'client-key': tls_files[2]
-                            }
-                        }],
-                        'contexts': [{
-                            'name': host,
-                            'context': { 'cluster': 'cluster', 'user': 'user' }
-                        }]
-                    })
+                kc_content = yaml.dump(data={
+                    'apiVersion': 'v1',
+                    'kind': 'Config',
+                    'current-context': host,
+                    'clusters': [{
+                        'name': 'cluster',
+                        'cluster': {
+                            'certificate-authority': f"/proc/{os.getpid()}/fd/{ca.fd}",
+                            'server': f'https://localhost:{port}'
+                        }
+                    }],
+                    'users': [{
+                        'name': 'user',
+                        'user': {
+                            'client-certificate': f"/proc/{os.getpid()}/fd/{crt.fd}",
+                            'client-key': f"/proc/{os.getpid()}/fd/{key.fd}"
+                        }
+                    }],
+                    'contexts': [{
+                        'name': host,
+                        'context': { 'cluster': 'cluster', 'user': 'user' }
+                    }]
+                })
+                os.write(kubeconfig.fd, bytes(kc_content, encoding='utf-8'))
 
                 if foreground:
-                    print(f"Use:\nexport KUBECONFIG={kc_path}")
+                    print(f"Use:\nexport KUBECONFIG=/proc/{os.getpid()}/fd/{kubeconfig.fd}")
                     forever = threading.Event()
                     try:
                         forever.wait()
                     except KeyboardInterrupt:
                         sys.exit(0)
                 else:
-                    os.environ['KUBECONFIG'] = kc_path
-                    subprocess.run([os.environ.get('SHELL')])
+                    os.environ['KUBECONFIG'] = f"/proc/self/fd/{kubeconfig.fd}"
+                    subprocess.run([os.environ.get('SHELL')], pass_fds=[kubeconfig.fd, ca.fd, crt.fd, key.fd])
 
 if __name__ == '__main__':
     main()
