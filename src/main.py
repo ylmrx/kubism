@@ -13,7 +13,7 @@ import yaml
 @click.option('--user', '-u', default='exoadmin', help="Login to host as")
 @click.argument('host')
 def main(foreground, host, user):
-    kubeconfig = os.memfd_create('kubeconfig', flags=os.MFD_CLOEXEC)
+    kubeconfig = os.memfd_create('kubeconfig', flags=0)
     with Connection(host=host, user=user) as c:
 
         if host.startswith('kube-master'):
