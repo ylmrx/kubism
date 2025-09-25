@@ -7,16 +7,13 @@ import subprocess
 import os
 import click
 import yaml
-from tmp_handler import TempFileHandler
 
 @click.command()
 @click.option('--foreground', '-f', help="don't open a subshell", is_flag=True, default=False)
 @click.option('--user', '-u', default='exoadmin', help="Login to host as")
 @click.argument('host')
 def main(foreground, host, user):
-    kubeconfig = TempFileHandler()
-    kubeconfig.create()
-
+    kubeconfig = os.memfd_create('kubeconfig', flags=os.MFD_CLOEXEC)
     with Connection(host=host, user=user) as c:
 
         if host.startswith('kube-master'):
@@ -50,18 +47,18 @@ def main(foreground, host, user):
                     print('fail to seek the opened port...')
                     sys.exit(1)
 
-                ca = TempFileHandler()
-                ca.create()
-                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[0]}", hide=True)
-                os.write(ca.fd, bytes(r.stdout, encoding='utf-8'))
-                crt = TempFileHandler()
-                crt.create()
-                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[1]}", hide=True)
-                os.write(crt.fd, bytes(r.stdout, encoding='utf-8'))
-                key = TempFileHandler()
-                key.create()
-                r = c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[2]}", hide=True)
-                os.write(key.fd, bytes(r.stdout, encoding='utf-8'))
+                ca = os.memfd_create('ca', flags=os.MFD_CLOEXEC)
+                os.write(ca, bytes(
+                    c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[0]}", hide=True).stdout,
+                    encoding='utf-8'))
+                crt = os.memfd_create('crt', flags=os.MFD_CLOEXEC)
+                os.write(crt, bytes(
+                    c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[1]}", hide=True).stdout,
+                    encoding='utf-8'))
+                key = os.memfd_create('key', flags=os.MFD_CLOEXEC)
+                os.write(key, bytes(
+                    c.sudo(f"cat {KUBE_CRYPTO_PATH}/{tls_files[2]}", hide=True).stdout,
+                    encoding='utf-8'))
 
                 kc_content = yaml.dump(data={
                     'apiVersion': 'v1',
@@ -70,15 +67,15 @@ def main(foreground, host, user):
                     'clusters': [{
                         'name': 'cluster',
                         'cluster': {
-                            'certificate-authority': f"/proc/{os.getpid()}/fd/{ca.fd}",
+                            'certificate-authority': f"/proc/{os.getpid()}/fd/{ca}",
                             'server': f'https://localhost:{port}'
                         }
                     }],
                     'users': [{
                         'name': 'user',
                         'user': {
-                            'client-certificate': f"/proc/{os.getpid()}/fd/{crt.fd}",
-                            'client-key': f"/proc/{os.getpid()}/fd/{key.fd}"
+                            'client-certificate': f"/proc/{os.getpid()}/fd/{crt}",
+                            'client-key': f"/proc/{os.getpid()}/fd/{key}"
                         }
                     }],
                     'contexts': [{
@@ -86,18 +83,18 @@ def main(foreground, host, user):
                         'context': { 'cluster': 'cluster', 'user': 'user' }
                     }]
                 })
-                os.write(kubeconfig.fd, bytes(kc_content, encoding='utf-8'))
+                os.write(kubeconfig, bytes(kc_content, encoding='utf-8'))
 
                 if foreground:
-                    print(f"Use:\nexport KUBECONFIG=/proc/{os.getpid()}/fd/{kubeconfig.fd}")
+                    print(f"Use:\nexport KUBECONFIG=/proc/{os.getpid()}/fd/{kubeconfig}")
                     forever = threading.Event()
                     try:
                         forever.wait()
                     except KeyboardInterrupt:
                         sys.exit(0)
                 else:
-                    os.environ['KUBECONFIG'] = f"/proc/self/fd/{kubeconfig.fd}"
-                    subprocess.run([os.environ.get('SHELL')], pass_fds=[kubeconfig.fd, ca.fd, crt.fd, key.fd])
+                    os.environ['KUBECONFIG'] = f"/proc/self/fd/{kubeconfig}"
+                    subprocess.run([os.environ.get('SHELL')], pass_fds=[kubeconfig, ca, crt, key])
 
 if __name__ == '__main__':
     main()
