@@ -1,3 +1,4 @@
+import signal
 import threading
 from fabric import Connection
 from tempfile import TemporaryDirectory
@@ -7,7 +8,9 @@ import subprocess
 import os
 import click
 import yaml
+import contextlib
 
+@contextlib.contextmanager
 @click.command()
 @click.option('--foreground', '-f', help="don't open a subshell", is_flag=True, default=False)
 @click.option('--user', '-u', default='exoadmin', help="Login to host as")
@@ -80,16 +83,32 @@ def main(foreground, host, user):
                         }]
                     })
 
+                _sig_handler()
                 if foreground:
                     print(f"Use:\nexport KUBECONFIG={kc_path}")
                     forever = threading.Event()
-                    try:
-                        forever.wait()
-                    except KeyboardInterrupt:
-                        sys.exit(0)
+                    forever.wait()
                 else:
                     os.environ['KUBECONFIG'] = kc_path
                     subprocess.run([os.environ.get('SHELL')])
+
+def _exit_handler(s, f):
+    print(f"caught signal {s}: {f}")
+    sys.exit(0)
+
+def _sig_handler():
+    # this should catch most cases
+    sigs = [
+        signal.SIGTERM,
+        signal.SIGQUIT,
+        signal.SIGINT,
+        signal.SIGHUP
+    ]
+    for sig in sigs:
+        try:
+            signal.signal(sig, _exit_handler)
+        except Exception as e:
+            print(f"{sig}: {e}")
 
 if __name__ == '__main__':
     main()
